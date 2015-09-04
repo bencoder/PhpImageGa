@@ -1,4 +1,5 @@
 <?php
+declare(ticks=10000); //required for ctrl+c capture
 
 class image
 {
@@ -26,7 +27,8 @@ class image
 
     private function addPolygon()
     {
-        $this->polygons[] = $this->generatePolygon();
+        $toInsert = [$this->generatePolygon()];
+        array_splice($this->polygons, rand(0,count($this->polygons)), 0, $toInsert);
     }
 
     private function removePolygon()
@@ -79,7 +81,6 @@ class image
     public function output($filename)
     {
         $image = $this->draw();
-
         imagepng($image, $filename);
         imagedestroy($image);
     }
@@ -121,33 +122,63 @@ class image
 }
 
 
-$step = 0;
+$sourceImage = "lena.png";
+$mutationRate = 2;
+$populationSize = 100;
+
+
+$stop = false;
+
+$handler = function ($signal) {
+    global $stop;
+    $stop = true;
+    echo "\n\nexiting\n\n";
+};
+
+pcntl_signal(SIGINT, $handler); //capture ctrl+c
+
+
 $population = [];
-for($i=0;$i<10;$i++) {
-    $population[] = new image();
-    $population[$i]->mutate(100);
+if (!file_exists("save")) {
+    for ($i = 0; $i < $populationSize; $i++) {
+        $population[] = new image();
+        $population[$i]->mutate(100); //bump it with an initial mutation
+    }
+} else {
+    $savedImage = unserialize(file_get_contents("save"));
+    for ($i = 0; $i < $populationSize; $i++) {
+        $population[] = clone $savedImage;
+    }
 }
-$lena = imagecreatefrompng("lena.png");
-$mutationRate = 10;
-while(true) {
+$source = imagecreatefrompng($sourceImage);
+
+$bestImage = null;
+
+$iteration = 1;
+while(!$stop) {
     $bestDiff = 10000000000;
-    $bestImage = null;
     foreach($population as $i => $image) {
         if ($i != 0) {  //don't mutate 0 - so it's the same as the best from the last iteration
             $image->mutate($mutationRate);
         }
-        $diff = $image->compare($lena);
+        $diff = $image->compare($source);
         if ($diff < $bestDiff) {
             $bestDiff = $diff;
             $bestImage = $image;
+            $bestMutationRate = $mutationRate;
         }
     }
-
+    echo ".";
     $bestImage->output("best.png");
-    echo $bestDiff."\n";
+    echo "$iteration:$bestDiff:$bestMutationRate\n";
 
     for($i=0;$i<count($population);$i++) {
         $population[$i] = clone $bestImage;
     }
+    $iteration++;
 }
 
+
+echo "Stopped";
+$serializedBest = serialize($bestImage);
+file_put_contents("save", $serializedBest);
